@@ -4,16 +4,12 @@ from transformers import RobertaTokenizer
 from tagging_model import FelixTagger
 import underthesea
 import time
-from tqdm import tqdm
-import re
 import numpy as np
 import itertools
 
 
-from transformers import AutoModelWithLMHead, AutoTokenizer, pipeline
 import torch
 import time
-import re
 
 
 # device = "cuda"

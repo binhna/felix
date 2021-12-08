@@ -1,5 +1,4 @@
 import collections
-import frozendict
 from constants import TAGS2ID, ID2TAGS
 import underthesea
 import pandas as pd

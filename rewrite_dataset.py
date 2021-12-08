@@ -2,8 +2,6 @@ import numpy as np
 import torch
 import itertools
 import constants
-# from collections import Counter
-from tqdm import tqdm
 
 
 class RewriteDataset(torch.utils.data.Dataset):
