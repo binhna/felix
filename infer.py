@@ -1,25 +1,21 @@
 import torch
 import constants
-from transformers import RobertaTokenizer
+from transformers import RobertaTokenizer, AutoModelWithLMHead
 from tagging_model import FelixTagger
 import underthesea
 import time
 import numpy as np
 import itertools
+import json
+import os
+import re
 
 
-import torch
-import time
+def preprocess_input(sentence):
+    sentence = re.sub(r"năm nào\?", "")
 
-
-# device = "cuda"
-# tokenizer = RobertaTokenizer.from_pretrained(model_path)
-# model = AutoModelWithLMHead.from_pretrained(model_path).to(device)
 
 def insertion(model, tokenizer, sequence, device):
-    # sequence = input("enter: ")#f"Vua Lê Thánh Tông qua đời {tokenizer.mask_token} năm 1497 {tokenizer.mask_token} bị bệnh nặng"
-    # sequence = sequence.replace("_", tokenizer.mask_token)
-    # print(sequence)
 
     start = time.time()
     input_ids = tokenizer.encode(sequence, return_tensors="pt").to(device)
@@ -119,7 +115,7 @@ def ner_extract(text, model, tokenizer, devide='cuda'):
 
     new_tokens = []
     tmp_w, tmp_label = '', None
-    for i, (w, lb) in enumerate(zip(words, tag_outputs[1:])):
+    for i, (w, lb) in enumerate(zip(words, tag_outputs)):
         if lb in constants.ID2TAGS:
             if not lb.startswith("KEEP|"):
                 new_tokens.append(w)
@@ -133,44 +129,55 @@ def ner_extract(text, model, tokenizer, devide='cuda'):
     final_str = []
     n = 0
     i = 0
+    position_added = []
     while (n<len_seq):
         position = point_outputs[i]
-        if position == 0:
+        if position == 0 or position in position_added:
             break
-        final_str.append(new_tokens[position])
+        position_added.append(position)
+        token = new_tokens[position] if position < len(new_tokens) else ""
+        final_str.append(token if token != tokenizer.eos_token else "")
         i = position
         n += 1
-    # for word, position in zip(new_tokens, point_outputs):
-    #     if position != 0 and position < len(new_tokens):
-    #         final_str.append(new_tokens[position])
+
     
     print(" ".join(final_str))
     return " ".join(final_str)
 
 
 if __name__ == '__main__':
-    #'selected_model/best_model.pth'
-    #'models/best_model_correct.pth'
-    model_path = './models/best_model_correct_tagging.pt'
+
+    model_path = './models'
     pretrained_path = "../shared_data/BDIRoBerta"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # device = "cpu"
-    model = FelixTagger(model_name=pretrained_path, device=device, num_classes=len(constants.ID2TAGS), is_training=False)
-    model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
+    print(device)
+
+    with open(os.path.join(model_path, "args.json")) as f:
+        args = json.load(f)
+
+    model_insertion = AutoModelWithLMHead.from_pretrained(pretrained_path).to(device)
+    model = FelixTagger(
+        model_name=pretrained_path, 
+        device=device, 
+        num_classes=len(constants.ID2TAGS), 
+        is_training=False,
+        position_embedding_dim=args["position_embedding_dim"],
+        query_dim=args["query_dim"])
+    model.load_state_dict(torch.load(os.path.join(model_path, "best_model_correct_tagging.pt"), map_location=torch.device(device)))
     model.to(device)
     model.eval()
+    model_insertion.to(device)
+    model_insertion.eval()
     tokenizer = RobertaTokenizer.from_pretrained(pretrained_path)
     print(f"Model {model_path} loading is done!")
 
     while True:
-        text = input("Enter text: ").strip().lower()#"chỉ đường tao đến số 8 ngõ 114 vũ trọng phụng giúp với"
+        text = input("Enter text: ").strip().lower()
         if not text:
             exit()
         start_time = time.time()
-        ner_extract(text, model, tokenizer, device)
+        seq_out = ner_extract(text, model, tokenizer, device)
         # print(ners)
         print(round((time.time() - start_time)*1000, 2), "ms")
-
-
-
-    # eval_navigation(model, tokenizer, device)
+        if tokenizer.mask_token in seq_out:
+            insertion(model_insertion, tokenizer, seq_out, device)

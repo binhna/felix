@@ -2,24 +2,35 @@ import torch
 from tqdm.auto import tqdm
 from seqeval.metrics import f1_score
 import constants
+from sklearn.metrics import classification_report
 
 
 def tagging_evaluate(y_true_tag, y_pred_tag, y_true_point, y_pred_point):
     pres, trues = [], []
     for sent_true, sent_out in zip(y_true_tag, y_pred_tag):
-        tmp = [constants.ID2TAGS[i] for i in sent_true if i != -100]
+        tmp = ["B-"+constants.ID2TAGS[i] for i in sent_true if i != -100]
         trues.append(tmp)
-        pres.append([constants.ID2TAGS[i] for i in sent_out[:len(tmp)]])
-    tag_f1 = f1_score(trues, pres)
-    print("F1 TAGGING:", tag_f1)
+        pres.append(["B-"+constants.ID2TAGS[i] for i in sent_out[:len(tmp)]])
+    # tag_f1 = f1_score(trues, pres)
+    trues = sum(trues, [])
+    pres = sum(pres, [])
+    report = classification_report(trues, pres, output_dict=True)
+    tag_f1 = report["macro avg"]["f1-score"]
+    print(classification_report(trues, pres))
+
 
     pres, trues = [], []
     for sent_true, sent_out in zip(y_true_point, y_pred_point):
-        tmp = [str(i) for i in sent_true if i != -100]
+        tmp = ["B-"+str(i) for i in sent_true if i != -100]
         trues.append(tmp)
-        pres.append([str(i) for i in sent_out[:len(tmp)]])
-    point_f1 = f1_score(trues, pres)
-    print("F1 POINTER:", point_f1)
+        pres.append(["B-"+str(i) for i in sent_out[:len(tmp)]])
+    trues = sum(trues, [])
+    pres = sum(pres, [])
+    report = classification_report(trues, pres, output_dict=True)
+    point_f1 = report["macro avg"]["f1-score"]
+    # print(classification_report(trues, pres))
+    # point_f1 = f1_score(trues, pres)
+    # print("F1 POINTER:", point_f1)
 
     return (tag_f1+point_f1)/2
 

@@ -7,6 +7,7 @@ from transformers import get_linear_schedule_with_warmup
 from transformers import AdamW
 import torch.nn as nn
 import numpy as np
+import json
 from collections import Counter
 
 # from utils import seed_all, count_parameters
@@ -68,7 +69,24 @@ if __name__ == "__main__":
         help="accu_grad_step",
     )
 
+    parser.add_argument(
+        "--position_embedding_dim",
+        default=64,
+        type=int,
+        help="position_embedding_dim",
+    )
+
+    parser.add_argument(
+        "--query_dim",
+        default=6,
+        type=int,
+        help="query_dim",
+    )
+
     args = parser.parse_args()
+    argparse_dict = vars(args)
+    with open("./models/args.json", "w") as f:
+        json.dump(argparse_dict, f, ensure_ascii=False)
 
     # seed_all(seed_value=args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -82,19 +100,20 @@ if __name__ == "__main__":
             training_samples.append([token.split() for token in tokens if len(token.split()) == 3])
     
     if args.weighted_loss:
-        label_weight_ = Counter(sum([[token[1] for token in sample] for sample in training_samples], []))
-        max_freq = label_weight_.most_common()[0][1]
-        print(label_weight_)
-        label_weight_ = {constants.TAGS2ID[tag]: freq for tag, freq in label_weight_.items()}
-        label_weight = [max_freq]*len(constants.ID2TAGS)
-        for id, weight in label_weight_.items():
-            label_weight[id] = weight
+        # label_weight_ = Counter(sum([[token[1] for token in sample] for sample in training_samples], []))
+        # max_freq = label_weight_.most_common()[0][1]
+        # print(label_weight_)
+        # label_weight_ = {constants.TAGS2ID[tag]: freq for tag, freq in label_weight_.items()}
+        # label_weight = [max_freq]*len(constants.ID2TAGS)
+        # for id, weight in label_weight_.items():
+        #     label_weight[id] = weight
+        # # print(label_weight)
+        # label_weight = np.array(label_weight)
+        # label_weight = sum(label_weight)/label_weight
+        # label_weight = label_weight/sum(label_weight)
+        label_weight = torch.FloatTensor([1, 1, 1, 2.5]).to(device)
         # print(label_weight)
-        label_weight = np.array(label_weight)
-        label_weight = sum(label_weight)/label_weight
-        label_weight = label_weight/sum(label_weight)
-        label_weight = torch.FloatTensor(label_weight).to(device)
-        # print(label_weight)
+        # exit()
     
     with open(constants.VALID_FILE, 'r') as f_r:
         sentences = f_r.read().split('\n\n')
@@ -133,7 +152,12 @@ if __name__ == "__main__":
     )
 
 
-    model = FelixTagger(model_name=args.model_name, device=device, num_classes=len(constants.ID2TAGS))
+    model = FelixTagger(
+        model_name=args.model_name, 
+        device=device, 
+        num_classes=len(constants.ID2TAGS),
+        position_embedding_dim=args.position_embedding_dim,
+        query_dim=args.query_dim)
     # print('The number of parameters of the model: ', count_parameters(model))
     model.to(device)
 
@@ -205,3 +229,5 @@ if __name__ == "__main__":
             torch.save(model.state_dict(), f'models/best_model_correct_tagging.pt')
         torch.save(model.state_dict(), f'models/last_model_tagging.pt')
         print('*'*100)
+    
+    print(f"Best avg f1 is {best_correct}")
