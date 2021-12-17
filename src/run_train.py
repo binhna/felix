@@ -6,11 +6,9 @@ from transformers import RobertaTokenizer
 from transformers import get_linear_schedule_with_warmup
 from transformers import AdamW
 import torch.nn as nn
-import numpy as np
 import json
-from collections import Counter
+import os
 
-# from utils import seed_all, count_parameters
 import constants
 from tagging_model import FelixTagger
 from rewrite_dataset import RewriteDataset
@@ -83,10 +81,15 @@ if __name__ == "__main__":
         help="query_dim",
     )
 
+    parser.add_argument(
+        "--checkpoint",
+        default=None,
+        type=str,
+        help="continue finetune",
+    )
+
     args = parser.parse_args()
     argparse_dict = vars(args)
-    with open("./models/args.json", "w") as f:
-        json.dump(argparse_dict, f, ensure_ascii=False)
 
     # seed_all(seed_value=args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -111,9 +114,14 @@ if __name__ == "__main__":
         # label_weight = np.array(label_weight)
         # label_weight = sum(label_weight)/label_weight
         # label_weight = label_weight/sum(label_weight)
-        label_weight = torch.FloatTensor([1, 1, 1, 2.5]).to(device)
+        label_weight = [1, 1, 2, 4]
+        argparse_dict["label_weight"] = label_weight
+        label_weight = torch.FloatTensor(label_weight).to(device)
         # print(label_weight)
         # exit()
+    
+    with open("./models/args.json", "w") as f:
+        json.dump(argparse_dict, f, ensure_ascii=False)
     
     with open(constants.VALID_FILE, 'r') as f_r:
         sentences = f_r.read().split('\n\n')
@@ -158,6 +166,8 @@ if __name__ == "__main__":
         num_classes=len(constants.ID2TAGS),
         position_embedding_dim=args.position_embedding_dim,
         query_dim=args.query_dim)
+    if args.checkpoint:
+        model.load_state_dict(torch.load(os.path.join(args.checkpoint, "best_model_correct_tagging.pt"), map_location=torch.device(device)))
     # print('The number of parameters of the model: ', count_parameters(model))
     model.to(device)
 
@@ -187,9 +197,9 @@ if __name__ == "__main__":
 
 
     if args.weighted_loss:
-        tag_criterion = nn.CrossEntropyLoss(weight=label_weight)
+        tag_criterion = nn.CrossEntropyLoss(weight=label_weight, ignore_index=constants.TAGS2ID["PAD"])
     else:
-        tag_criterion = nn.CrossEntropyLoss()
+        tag_criterion = nn.CrossEntropyLoss()#ignore_index=constants.TAGS2ID["PAD"])
     
     pointer_criterion = nn.CrossEntropyLoss()
 

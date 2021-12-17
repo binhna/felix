@@ -1,0 +1,3 @@
+## TODO
+- Tạo data với trợ từ của từ để hỏi không xuất hiện trong câu trả lời. Ví dụ `thủ đô của Việt Nam là tỉnh nào?` --> `thành phố Hà Nội`. Thông thường mô hình hay thay thế cụm câu trả lời vào từ để hỏi, nên trường hợp này sẽ tạo ra cụm câu trả lời sai như `thủ đô của VN là tỉnh thành phố HN`, `chùa keo xây dựng năm nào? --> thế kỷ 17`
+- thời gian bắt đầu/ kết thúc của ... --> ... bắt đầu/ kết thúc vào ...

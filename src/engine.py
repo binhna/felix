@@ -1,22 +1,79 @@
 import torch
+import torch.nn as nn
 from tqdm.auto import tqdm
-from seqeval.metrics import f1_score
+from seqeval.metrics import f1_score, classification_report
 import constants
-from sklearn.metrics import classification_report
+# from sklearn.metrics import classification_report
+import numpy as np
+from collections import Counter
+
+
+class DiceLoss(nn.Module):
+
+    def __init__(self, device) -> None:
+        super().__init__()
+        self.device = device
+
+    def onehot_initialization_v2(self, a, num_label):
+        ncols = num_label
+        out = np.zeros((a.size, ncols), dtype=np.uint8)
+        out[np.arange(a.size), a.ravel()] = 1
+        out.shape = a.shape + (ncols,)
+        return out
+
+
+    def forward(self, pred, target):
+        """This definition generalize to real valued pred and target vector.
+        This should be differentiable.
+        pred: tensor with first dimension as batch: [batch, seq_len, num_label]
+        target: tensor with first dimension as batch: [batch, seq_len] or [batch, seq_len, num_label]
+        """
+        # print(pred.size(), target.size())
+        if pred.size() != target.size():
+            size = list(pred.size())
+            target_ = target.cpu().numpy()
+            target_ = self.onehot_initialization_v2(target_, size[1])
+            
+            # print(target_.size)
+            # if target_.size != np.prod(size):
+            #     print(np.unique(target_))
+            #     with open('outfile.txt','wb') as f:
+            #         for line in target_:
+            #             np.savetxt(f, line, fmt='%.2f')
+            # # target = target_.reshape(size)
+            
+            target = torch.tensor(target_).to(self.device)
+
+        smooth = 1.
+
+        # have to use contiguous since they may from a torch.view op
+        iflat = pred.contiguous().view(-1)
+        tflat = target.contiguous().view(-1)
+        intersection = (iflat * tflat).sum()
+
+        A_sum = torch.sum(tflat * iflat)
+        B_sum = torch.sum(tflat * tflat)
+        
+        return 1 - ((2. * intersection + smooth) / (A_sum + B_sum + smooth) )
 
 
 def tagging_evaluate(y_true_tag, y_pred_tag, y_true_point, y_pred_point):
     pres, trues = [], []
     for sent_true, sent_out in zip(y_true_tag, y_pred_tag):
-        tmp = ["B-"+constants.ID2TAGS[i] for i in sent_true if i != -100]
+        tmp = ["B-"+constants.ID2TAGS[i] if constants.ID2TAGS[i] != "PAD" else "O" for i in sent_true if i != constants.TAGS2ID["PAD"]]
         trues.append(tmp)
-        pres.append(["B-"+constants.ID2TAGS[i] for i in sent_out[:len(tmp)]])
+        pres.append(["B-"+constants.ID2TAGS[i] if constants.ID2TAGS[i] != "PAD" else "O" for i in sent_out[:len(tmp)]])
     # tag_f1 = f1_score(trues, pres)
-    trues = sum(trues, [])
-    pres = sum(pres, [])
-    report = classification_report(trues, pres, output_dict=True)
+    # trues = sum(trues, [])
+    # pres = sum(pres, [])
+    print(Counter(sum(pres, [])))
+    # print(Counter(y_pred_tag))
+    report = classification_report(trues, pres, output_dict=True, zero_division=0)
     tag_f1 = report["macro avg"]["f1-score"]
-    print(classification_report(trues, pres))
+
+    # print(report)
+    print(classification_report(trues, pres, zero_division=0))
+    print("F1 TAGGING:", tag_f1)
 
 
     pres, trues = [], []
@@ -24,13 +81,13 @@ def tagging_evaluate(y_true_tag, y_pred_tag, y_true_point, y_pred_point):
         tmp = ["B-"+str(i) for i in sent_true if i != -100]
         trues.append(tmp)
         pres.append(["B-"+str(i) for i in sent_out[:len(tmp)]])
-    trues = sum(trues, [])
-    pres = sum(pres, [])
-    report = classification_report(trues, pres, output_dict=True)
+    # trues = sum(trues, [])
+    # pres = sum(pres, [])
+    report = classification_report(trues, pres, output_dict=True, zero_division=0)
     point_f1 = report["macro avg"]["f1-score"]
     # print(classification_report(trues, pres))
     # point_f1 = f1_score(trues, pres)
-    # print("F1 POINTER:", point_f1)
+    print("F1 POINTER:", point_f1)
 
     return (tag_f1+point_f1)/2
 

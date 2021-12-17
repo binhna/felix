@@ -3,6 +3,10 @@ from constants import TAGS2ID, ID2TAGS
 import underthesea
 import pandas as pd
 from tqdm import tqdm
+import random
+
+SEED = 2707
+random.seed(SEED)
 
 class Point(object):
     """Point that corresponds to a token edit operation.
@@ -101,8 +105,14 @@ if __name__ == "__main__":
 
     _inverse_label_map = ID2TAGS
     
-    df = pd.read_excel("./data/RewriteAnnotation.xlsx", sheet_name="Rewrite", engine='openpyxl')
-    df.fillna(False, inplace=True)
+    # df = pd.read_excel("./data/RewriteAnnotation.xlsx", sheet_name="Rewrite", engine='openpyxl')
+    # df.fillna(False, inplace=True)
+    with open("./not_revise_marks.txt") as f1, open("./revise_marks.txt") as f2:
+        df = f1.read().split("\n") + f2.read().split("\n")
+        df = sorted(list(set(df)), key=lambda x: len(x))
+        random.shuffle(df)
+        df = [line.split("\t") for line in df]
+        df = pd.DataFrame(df, columns=["question", "short answer", "rewrite1"])
     
     text_samples = []
     data = []
@@ -111,6 +121,7 @@ if __name__ == "__main__":
         if row["rewrite1"] and row["question"] and row["short answer"]:
             q = row.question.lower().strip()
             q += "?" if not q.endswith("?") else ""
+            q = q.replace(":?", "?")
             a = str(row['short answer']).lower().strip()
             rewrite = row.rewrite1.lower().strip()
             src = "<s> " + " ".join(underthesea.word_tokenize(q)) + " " + " ".join(underthesea.word_tokenize(a)) + " </s>"
