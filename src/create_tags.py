@@ -117,6 +117,8 @@ if __name__ == "__main__":
     text_samples = []
     data = []
     fail = []
+    tgts = []
+    srcs = []
     for i, row in tqdm(df.iterrows(), total=df.shape[0]):
         if row["rewrite1"] and row["question"] and row["short answer"]:
             q = row.question.lower().strip()
@@ -167,6 +169,8 @@ if __name__ == "__main__":
             ]
             if len(label_tokens) == len(points) and len(label_tokens) == len(src.split()):
                 data.append((src.split(), label_tokens, [p.point_index for p in points]))
+                tgts.append(tgt)
+                srcs.append(src)
             else:
                 fail.append([src.split(), label_tokens, len(src.split()), len(label_tokens)])
     print(len(data))
@@ -174,6 +178,8 @@ if __name__ == "__main__":
     num_train = int(len(data)*0.9)
     train = data[:num_train]
     valid = data[num_train:]
+    valid_raw = tgts[num_train:]
+    srcs = srcs[num_train:]
     
     train_count = 0
     valid_count = 0
@@ -186,6 +192,9 @@ if __name__ == "__main__":
                 f.write(f"{w} {t} {p}\n")
             f.write("\n")
     
+    with open("./data/sentence_pair.txt", "w") as f:
+        for s, t in zip(srcs, valid_raw):
+            f.write(f"{s}\t{t}\n")
     with open("./data/valid.conll", "w") as f:
         for words, tags, points in valid:
             if set(tags).intersection(set(["KEEP|2", "KEEP|3", "KEEP|4", "KEEP|5", "KEEP|6", "KEEP|7", "KEEP|8", "KEEP|9", "KEEP|10"])):
