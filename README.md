@@ -1,6 +1,6 @@
 # Felix
 
-This is a re-implementation of the felix repo from google in pytorch, I use the model for rewrite the answer from a question and a short answer.
+This is a re-implementation of the **[FELIX: Flexible Text Editing Through Tagging and Insertion](https://aclanthology.org/2020.findings-emnlp.111/)** paper in pytorch, I use the model for rewrite the answer from a question and a short answer.
 For example:
 
 ```
