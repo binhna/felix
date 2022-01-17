@@ -1,6 +1,6 @@
 import torch
 import constants
-from transformers import RobertaTokenizer, AutoModelWithLMHead
+from transformers import AutoTokenizer, AutoConfig
 from tagging_model import FelixTagger
 import underthesea
 import time
@@ -10,49 +10,8 @@ import json
 import os
 import sys
 
-#"ngày tháng năm nào?"
-replacement = {
-    "lúc nào?": ["năm nào?", "ngày nào?", "tháng nào?"],
-    "?": ["tỉnh nào?", "thành phố nào?", "quận nào?", "huyện nào?", "xã nào?", "nơi nào?", "chỗ nào?", "khu nào?", "thị trấn nào?", "phường nào?"],
-}
 
-replacement = {
-    key: sorted(v, key=lambda x: len(x), reverse=True) for key, v in replacement.items()
-}
-
-
-model_path = "./models" if len(sys.argv) < 2 else sys.argv[1]
-pretrained_path = "../shared_data/BDIRoBerta"
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(device)
-
-with open(os.path.join(model_path, "args.json")) as f:
-    args = json.load(f)
-
-model_insertion = AutoModelWithLMHead.from_pretrained(pretrained_path).to(device)
-model = FelixTagger(
-    model_name=pretrained_path,
-    device=device,
-    num_classes=len(constants.ID2TAGS),
-    is_training=False,
-    position_embedding_dim=args["position_embedding_dim"],
-    query_dim=args["query_dim"],
-)
-model.load_state_dict(
-    torch.load(
-        os.path.join(model_path, "best_model_correct_tagging.pt"),
-        map_location=torch.device(device),
-    )
-)
-model.to(device)
-model.eval()
-model_insertion.to(device)
-model_insertion.eval()
-tokenizer = RobertaTokenizer.from_pretrained(pretrained_path)
-print(f"Model {model_path} loading is done!")
-
-
-def preprocess_input(sentence):
+def preprocess_input(sentence, replacement={}):
     for key, rep in replacement.items():
         for r in rep:
             sentence = sentence.replace(r, key)
@@ -115,9 +74,9 @@ def bpe_tokenizer(words, tokenizer, max_word_length, max_subword_length):
     return sub_word_ids, attention_mask, attention_mask_words, word_matrix
 
 
-def ner_extract(text, model, tokenizer, devide="cuda", debug=False):
+def ner_extract(text, model, tokenizer, devide="cuda", replacement={}, debug=False):
     model.eval()
-    text = preprocess_input(text)
+    text = preprocess_input(text, replacement)
 
     words = " ".join(underthesea.word_tokenize(text)).split()
     words = [tokenizer.bos_token] + words + [tokenizer.eos_token]
@@ -129,7 +88,7 @@ def ner_extract(text, model, tokenizer, devide="cuda", debug=False):
 
     with torch.no_grad():
         sub_word_ids, attention_mask, attention_mask_words, word_matrix = bpe_tokenizer(
-            words, tokenizer, 128, 192
+            words, tokenizer, model.max_word_length, model.max_sub_word_length
         )
         sub_word_ids = torch.tensor(sub_word_ids).unsqueeze(dim=0).to(devide)
         attention_mask = torch.tensor(attention_mask).unsqueeze(dim=0).to(devide)
@@ -185,7 +144,7 @@ def ner_extract(text, model, tokenizer, devide="cuda", debug=False):
 
     pointer_s = []
     for idx in point_loop:
-        if idx == 0 or new_tokens[idx] == tokenizer.eos_token:
+        if idx == 0 or idx >= len(new_tokens) or new_tokens[idx] == tokenizer.eos_token:
             break
         pointer_s.append(new_tokens[idx].strip())
 
@@ -221,25 +180,76 @@ def ner_extract(text, model, tokenizer, devide="cuda", debug=False):
     return pointer_s
 
 
-def rewrite(text, felix_model=model, insertion_model=model_insertion, tokenizer=tokenizer, debug=False):
+def rewrite(text, felix_model, tokenizer, device, debug=False, replacement={}):
     assert text, "input text must be valid"
     start_time = time.time()
-    seq_out = ner_extract(text, felix_model, tokenizer, device, debug)
+    seq_out = ner_extract(text, felix_model, tokenizer, device, replacement, debug)
     # print(ners)
     if debug:
         print(round((time.time() - start_time) * 1000, 2), "ms")
     if tokenizer.mask_token in seq_out:
-        seq_out = insertion(insertion_model, tokenizer, seq_out, device, debug)
+        seq_out = insertion(
+            felix_model.roberta4maskedlm, tokenizer, seq_out, device, debug
+        )
     if debug:
         print("**** FULL ANSWER:", seq_out)
         print("*" * 50)
     return seq_out
 
 
-
 if __name__ == "__main__":
+
+    # "ngày tháng năm nào?"
+    # replacement = {
+    #     "lúc nào?": ["năm nào?", "ngày nào?", "tháng nào?"],
+    #     "?": ["tỉnh nào?", "thành phố nào?", "quận nào?", "huyện nào?", "xã nào?", "nơi nào?", "chỗ nào?", "khu nào?", "thị trấn nào?", "phường nào?"],
+    # }
+
+    # replacement = {
+    #     key: sorted(v, key=lambda x: len(x), reverse=True) for key, v in replacement.items()
+    # }
+
+    model_path = "./models" if len(sys.argv) < 2 else sys.argv[1]
+    pretrained_path = (
+        "/data/binhna2/masklm/pretrained/BDIRoBERTa_4layers_oscarwiki/checkpoint-132500"
+    )
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(device)
+
+    with open(os.path.join(model_path, "args.json")) as f:
+        args = json.load(f)
+    config = AutoConfig.from_pretrained(pretrained_path)
+
+    model = FelixTagger(
+        model_name=pretrained_path,
+        device=device,
+        max_sub_word_length=config.max_position_embeddings - 2,
+        num_classes=len(constants.ID2TAGS),
+        is_training=False,
+        query_dim=args["query_dim"],
+    )
+    model.load_pretrained(model_path)
+    # model.load_state_dict(
+    #     torch.load(
+    #         os.path.join(model_path, "best_model_correct_tagging.pt"),
+    #         map_location=torch.device(device),
+    #     )
+    # )
+    model.to(device)
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
+    print(f"Model {model_path} loading is done!")
+
     while True:
         text = input("Enter text: ").strip().lower()
         if not text:
             exit()
-        rewrite(text)
+        seq = rewrite(
+            text,
+            felix_model=model,
+            tokenizer=tokenizer,
+            device=device,
+            debug=True,
+            replacement={},
+        )
+        print(seq)

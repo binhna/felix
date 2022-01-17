@@ -1,5 +1,5 @@
 models
 data
-backup_models
+backup_model/
 __pycache__/
 pointer.txt

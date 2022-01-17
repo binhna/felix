@@ -107,7 +107,7 @@ if __name__ == "__main__":
     
     # df = pd.read_excel("./data/RewriteAnnotation.xlsx", sheet_name="Rewrite", engine='openpyxl')
     # df.fillna(False, inplace=True)
-    with open("./not_revise_marks.txt") as f1, open("./revise_marks.txt") as f2:
+    with open("./data/not_revise_marks.txt") as f1, open("./data/revise_marks.txt") as f2:
         df = f1.read().split("\n") + f2.read().split("\n")
         df = sorted(list(set(df)), key=lambda x: len(x))
         random.shuffle(df)

@@ -2,9 +2,12 @@ import gc
 import argparse
 import torch
 from torch.utils.data import DataLoader, SequentialSampler
-from transformers import RobertaTokenizer
-from transformers import get_linear_schedule_with_warmup
-from transformers import AdamW
+from transformers import (
+    get_linear_schedule_with_warmup,
+    AdamW,
+    AutoTokenizer,
+    AutoConfig,
+)
 import torch.nn as nn
 import json
 import os
@@ -13,6 +16,7 @@ import constants
 from tagging_model import FelixTagger
 from rewrite_dataset import RewriteDataset
 from engine import train_fn, validation_fn
+from eval import bleu_score
 
 
 if __name__ == "__main__":
@@ -96,12 +100,14 @@ if __name__ == "__main__":
     print(device)
 
     training_samples, valid_samples = [], []
-    with open(constants.TRAINING_FILE, 'r') as f_r:
-        sentences = f_r.read().split('\n\n')
+    with open(constants.TRAINING_FILE, "r") as f_r:
+        sentences = f_r.read().split("\n\n")
         for sent in sentences:
-            tokens = sent.strip().split('\n')
-            training_samples.append([token.split() for token in tokens if len(token.split()) == 3])
-    
+            tokens = sent.strip().split("\n")
+            training_samples.append(
+                [token.split() for token in tokens if len(token.split()) == 3]
+            )
+
     if args.weighted_loss:
         # label_weight_ = Counter(sum([[token[1] for token in sample] for sample in training_samples], []))
         # max_freq = label_weight_.most_common()[0][1]
@@ -119,36 +125,39 @@ if __name__ == "__main__":
         label_weight = torch.FloatTensor(label_weight).to(device)
         # print(label_weight)
         # exit()
-    
+
     with open("./models/args.json", "w") as f:
         json.dump(argparse_dict, f, ensure_ascii=False)
-    
-    with open(constants.VALID_FILE, 'r') as f_r:
-        sentences = f_r.read().split('\n\n')
+
+    with open(constants.VALID_FILE, "r") as f_r:
+        sentences = f_r.read().split("\n\n")
         for sent in sentences:
-            tokens = sent.strip().split('\n')
-            valid_samples.append([token.split() for token in tokens if len(token.split()) == 3])
+            tokens = sent.strip().split("\n")
+            valid_samples.append(
+                [token.split() for token in tokens if len(token.split()) == 3]
+            )
     # print(Counter(sum([[token[1] for token in sample] for sample in valid_samples], [])))
     # exit()
 
-    print('Number of training samples: ', len(training_samples))
-    print('Number of validation samples: ', len(valid_samples))
-    
-    tokenizer = RobertaTokenizer.from_pretrained(args.model_name)
+    print("Number of training samples: ", len(training_samples))
+    print("Number of validation samples: ", len(valid_samples))
+
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    config = AutoConfig.from_pretrained(args.model_name)
 
     train_dataset = RewriteDataset(
-        training_samples, tokenizer=tokenizer
+        training_samples,
+        tokenizer=tokenizer,
+        max_subword_length=config.max_position_embeddings - 2,
     )
     train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=1
+        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=1
     )
 
     valid_dataset = RewriteDataset(
         valid_samples,
-        tokenizer=tokenizer
+        tokenizer=tokenizer,
+        max_subword_length=config.max_position_embeddings - 2,
     )
     valid_sampler = SequentialSampler(valid_dataset)
     valid_loader = DataLoader(
@@ -156,18 +165,24 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         shuffle=False,
         sampler=valid_sampler,
-        num_workers=1
+        num_workers=1,
     )
 
-
     model = FelixTagger(
-        model_name=args.model_name, 
-        device=device, 
+        model_name=args.model_name,
+        device=device,
+        max_sub_word_length=config.max_position_embeddings - 2,
         num_classes=len(constants.ID2TAGS),
-        position_embedding_dim=args.position_embedding_dim,
-        query_dim=args.query_dim)
+        query_dim=args.query_dim,
+    )
+    model.load_pretrained()
     if args.checkpoint:
-        model.load_state_dict(torch.load(os.path.join(args.checkpoint, "best_model_correct_tagging.pt"), map_location=torch.device(device)))
+        model.load_state_dict(
+            torch.load(
+                os.path.join(args.checkpoint, "best_model_correct_tagging.pt"),
+                map_location=torch.device(device),
+            )
+        )
     # print('The number of parameters of the model: ', count_parameters(model))
     model.to(device)
 
@@ -195,12 +210,13 @@ if __name__ == "__main__":
         optimizer, num_warmup_steps=200, num_training_steps=total_steps
     )
 
-
     if args.weighted_loss:
-        tag_criterion = nn.CrossEntropyLoss(weight=label_weight, ignore_index=constants.TAGS2ID["PAD"])
+        tag_criterion = nn.CrossEntropyLoss(
+            weight=label_weight, ignore_index=constants.TAGS2ID["PAD"]
+        )
     else:
-        tag_criterion = nn.CrossEntropyLoss()#ignore_index=constants.TAGS2ID["PAD"])
-    
+        tag_criterion = nn.CrossEntropyLoss()  # ignore_index=constants.TAGS2ID["PAD"])
+
     pointer_criterion = nn.CrossEntropyLoss()
 
     max_score = -1
@@ -218,26 +234,29 @@ if __name__ == "__main__":
             optimizer=optimizer,
             device=device,
             scheduler=scheduler,
-            accu_step=args.accu_step
+            accu_step=args.accu_step,
         )
-        print('Training loss: ', total_loss)
+        print("Training loss: ", total_loss)
 
-        total_loss, avg_f1 = validation_fn(
-            valid_loader, model, tag_criterion, pointer_criterion, device
-        )
-        correct = avg_f1
+        # total_loss, avg_f1 = validation_fn(
+        #     valid_loader, model, tag_criterion, pointer_criterion, device
+        # )
+        model._is_training = False
+        bleu, sari = bleu_score("./data/sentence_pair.txt", model, tokenizer, device)
+        correct = (bleu + sari) / 2
+        model._is_training = True
         # correct += eval_navigation(model, tokenizer, device)
 
-        print('Validation loss', total_loss)
+        print("Validation loss", total_loss)
         if total_loss < best_loss:
             print(f"New best model {total_loss}")
             best_loss = total_loss
-            torch.save(model.state_dict(), f'models/best_model_loss_tagging.pt')
+            torch.save(model.state_dict(), f"models/best_model_loss_tagging.pt")
         if correct > best_correct:
             print(f"********* New best correct {correct} *********")
             best_correct = correct
-            torch.save(model.state_dict(), f'models/best_model_correct_tagging.pt')
-        torch.save(model.state_dict(), f'models/last_model_tagging.pt')
-        print('*'*100)
-    
+            torch.save(model.state_dict(), f"models/best_model_correct_tagging.pt")
+        torch.save(model.state_dict(), f"models/last_model_tagging.pt")
+        print("*" * 100)
+
     print(f"Best avg f1 is {best_correct}")

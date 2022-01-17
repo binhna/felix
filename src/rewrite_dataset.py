@@ -1,20 +1,14 @@
 import numpy as np
 import torch
-import itertools
 import constants
 
 
 class RewriteDataset(torch.utils.data.Dataset):
-    def __init__(self, samples, tokenizer, max_word_length=128):
+    def __init__(self, samples, tokenizer, max_subword_length=128):
         self.samples = samples
         self.tokenizer = tokenizer
-        self.max_word_length = max_word_length
-        self.max_subword_length = int(self.max_word_length * 1.5)
-        # self.label_weight = Counter()
-
-        # self.data2tensor()
-
-    # def data2tensor(self):
+        self.max_word_length = int(max_subword_length//1.5)
+        self.max_subword_length = max_subword_length
         
 
     def __getitem__(self, idx):
@@ -50,39 +44,47 @@ class RewriteDataset(torch.utils.data.Dataset):
         return item#self.samples[idx]
 
     def bpe_tokenizer(self, words):
-        # if 'phobert' in self.tokenizer.name_or_path:
-        #     token_tmp = [self.tokenizer.bos_token] + words + [self.tokenizer.eos_token]
-        # else:
-        token_tmp = [self.tokenizer.cls_token] + \
-            words + [self.tokenizer.cls_token]
-        attention_mask_words = np.ones(len(token_tmp))
-        attention_mask_words = attention_mask_words[:self.max_word_length]
-        attention_mask_words = np.hstack([attention_mask_words, np.zeros(
-            self.max_word_length - len(attention_mask_words))])
+        # token_tmp = words
+        sub_words = []
+        total_subwords = 0
+        for word in words:
+            tmp = self.tokenizer.encode(word, add_special_tokens=False)
+            if total_subwords + len(tmp) <= self.max_subword_length - 2:
+                sub_words.append(tmp)
+                total_subwords += len(tmp)
+            else:
+                break
+        # print(sub_words, self.max_word_length)
+        sub_words = sub_words[: self.max_word_length-2]
+        
+        try:
+            sub_words = [[self.tokenizer.bos_token_id]] + sub_words + [[self.tokenizer.eos_token_id]]
+        except:
+            sub_words = [[self.tokenizer.cls_token_id]] + sub_words + [[self.tokenizer.cls_token_id]]
 
-        sub_words = [
-            self.tokenizer.encode(token, add_special_tokens=False)
-            for token in token_tmp
-        ]
-        sub_words = sub_words[: self.max_subword_length]
+        sub_word_ids = sum(sub_words, [])
 
+        # word_matrix = np.zeros((self.max_subword_length, self.max_subword_length))
         word_matrix = np.zeros((self.max_word_length, self.max_subword_length))
 
         j = 0
         for i, tks in enumerate(sub_words):
             if tks[0] == self.tokenizer.pad_token_id:
                 break
-            for tk in tks:
+            for _ in tks:
                 word_matrix[i, j] = 1
                 j += 1
-        sub_word_ids = list(itertools.chain.from_iterable(sub_words))
         sub_word_ids.extend(
-            [self.tokenizer.pad_token_id] *
-            (self.max_subword_length - len(sub_word_ids))
+            [self.tokenizer.pad_token_id]
+            * (self.max_subword_length - len(sub_word_ids))
         )  # <pad> index
         attention_mask = np.ones(len(sub_word_ids))
-        attention_mask[np.array(sub_word_ids) ==
-                       self.tokenizer.pad_token_id] = 0
+        attention_mask[np.array(sub_word_ids) == self.tokenizer.pad_token_id] = 0
+
+        attention_mask_words = np.ones(len(sub_words))
+        attention_mask_words = attention_mask_words[:self.max_word_length]
+        attention_mask_words = np.hstack([attention_mask_words, np.zeros(
+            self.max_word_length - len(attention_mask_words))])
         return sub_word_ids, attention_mask, attention_mask_words, word_matrix
 
     def __len__(self):
