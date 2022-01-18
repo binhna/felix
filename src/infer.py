@@ -210,34 +210,27 @@ if __name__ == "__main__":
     # }
 
     model_path = "./models" if len(sys.argv) < 2 else sys.argv[1]
-    pretrained_path = (
-        "/data/binhna2/masklm/pretrained/BDIRoBERTa_4layers_oscarwiki/checkpoint-132500"
-    )
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(device)
 
     with open(os.path.join(model_path, "args.json")) as f:
         args = json.load(f)
-    config = AutoConfig.from_pretrained(pretrained_path)
+    
+    max_position_embeddings = 132
 
     model = FelixTagger(
-        model_name=pretrained_path,
+        model_name=model_path,
         device=device,
-        max_sub_word_length=config.max_position_embeddings - 2,
+        max_sub_word_length=max_position_embeddings - 2,
         num_classes=len(constants.ID2TAGS),
         is_training=False,
         query_dim=args["query_dim"],
     )
     model.load_pretrained(model_path)
-    # model.load_state_dict(
-    #     torch.load(
-    #         os.path.join(model_path, "best_model_correct_tagging.pt"),
-    #         map_location=torch.device(device),
-    #     )
-    # )
+
     model.to(device)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
     print(f"Model {model_path} loading is done!")
 
     while True:
